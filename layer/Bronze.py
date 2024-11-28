@@ -1,0 +1,67 @@
+# Databricks notebook source
+# MAGIC %run ../Common
+
+# COMMAND ----------
+
+RAW_TABLES = [
+    "dim_file_reg",
+    "dim_network_foreign_ip",
+    "dim_network_interface",
+    "dim_network_open_port",
+    "dim_network_socket",
+    "dim_network_host",
+    "dim_process",
+    "fact_file_reg",
+    "fact_network_ip",
+    "fact_network_packet",
+    "fact_process",
+    "fact_process_network",
+    "file_host",
+    "file_service",
+    "file_user",
+    "tech_chrono",
+    "tech_table_count",
+]
+
+# COMMAND ----------
+
+def add_meta_columns(df):
+    return (
+        df.withColumn("file_name", F.col("_metadata.file_name"))
+        .withColumn("file_size", F.col("_metadata.file_size"))
+        .withColumn(
+            "hostname",
+            F.substring(
+                F.col("_metadata.file_name"),
+                0,
+                F.length(F.col("_metadata.file_name")) - 23,
+            ),
+        )
+        .withColumn(
+            "date_sent",
+            F.to_date(
+                F.substring(
+                    F.col("_metadata.file_name"),
+                    F.length(F.col("_metadata.file_name")) - 21,
+                    14,
+                ),
+                "yyyyMMddHHmmss",
+            ),
+        )
+        .withColumn("date_ingest", F.current_timestamp())
+    )
+
+# COMMAND ----------
+
+def raw_to_bronze(table):
+    df = spark.read.format("parquet").load(
+        f"abfss://rstracer@devrstracersto.dfs.core.windows.net/raw/{table}"
+    )
+    df = add_meta_columns(df)
+    df = df.distinct()
+    df.write.mode("overwrite").saveAsTable(f"bronze.{table}")
+
+# COMMAND ----------
+
+for table in RAW_TABLES:
+    raw_to_bronze(table)
