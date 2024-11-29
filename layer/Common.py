@@ -1,7 +1,9 @@
 # Databricks notebook source
 # import
 
-from pyspark.sql import functions as F
+from pyspark.sql import functions as F, Window
+from delta.tables import DeltaTable
+import time
 
 # COMMAND ----------
 
@@ -26,3 +28,9 @@ spark.conf.set(f"fs.azure.account.oauth2.client.endpoint.{STORAGE_ACCOUNT}.dfs.c
 spark.sql("CREATE DATABASE IF NOT EXISTS bronze")
 spark.sql("CREATE DATABASE IF NOT EXISTS silver")
 spark.sql("CREATE DATABASE IF NOT EXISTS gold")
+
+# COMMAND ----------
+
+# streaming
+
+CHECKPOINT_PATH = f"abfss://rstracer@{STORAGE_ACCOUNT}.dfs.core.windows.net/conf/.checkpoint"

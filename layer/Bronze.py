@@ -1,5 +1,9 @@
 # Databricks notebook source
-# MAGIC %run ../Common
+# MAGIC %run ./Common
+
+# COMMAND ----------
+
+spark.conf.set("spark.sql.streaming.schemaInference", "true")
 
 # COMMAND ----------
 
@@ -22,6 +26,12 @@ RAW_TABLES = [
     "tech_chrono",
     "tech_table_count",
 ]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+# MAGIC ## Function
 
 # COMMAND ----------
 
@@ -54,12 +64,21 @@ def add_meta_columns(df):
 # COMMAND ----------
 
 def raw_to_bronze(table):
-    df = spark.read.format("parquet").load(
+    df = spark.readStream.parquet(
         f"abfss://rstracer@devrstracersto.dfs.core.windows.net/raw/{table}"
     )
     df = add_meta_columns(df)
     df = df.distinct()
-    df.write.mode("overwrite").saveAsTable(f"bronze.{table}")
+    df.writeStream.outputMode("append").option(
+        "checkpointLocation",
+        f"{CHECKPOINT_PATH}/bronze_{table}",
+    ).toTable(f"bronze.{table}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+# MAGIC ## Run
 
 # COMMAND ----------
 
