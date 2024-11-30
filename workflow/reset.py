@@ -1,20 +1,20 @@
 # Databricks notebook source
-# MAGIC %run ../layer/Common
+# MAGIC %run ../layer/common
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC DROP DATABASE bronze CASCADE;
+# MAGIC DROP DATABASE IF EXISTS bronze CASCADE;
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC DROP DATABASE silver CASCADE;
+# MAGIC DROP DATABASE IF EXISTS silver CASCADE;
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC DROP DATABASE gold CASCADE;
+# MAGIC DROP DATABASE IF EXISTS gold CASCADE;
 
 # COMMAND ----------
 

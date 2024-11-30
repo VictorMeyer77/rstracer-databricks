@@ -22,7 +22,6 @@ spark.conf.set(f"fs.azure.account.oauth2.client.endpoint.{STORAGE_ACCOUNT}.dfs.c
 
 # COMMAND ----------
 
-
 # schema
 
 spark.sql("CREATE DATABASE IF NOT EXISTS bronze")
@@ -34,3 +33,20 @@ spark.sql("CREATE DATABASE IF NOT EXISTS gold")
 # streaming
 
 CHECKPOINT_PATH = f"abfss://rstracer@{STORAGE_ACCOUNT}.dfs.core.windows.net/conf/.checkpoint"
+
+def streaming_merge_table(df, table_sink, keys):
+    merge_condition = " AND ".join([f"source.{key} == target.{key}" for key in keys])
+    if not spark.catalog.tableExists(table_sink):
+        df.write.mode("overwrite").saveAsTable(table_sink)
+    else:
+        delta_table = DeltaTable.forName(spark, table_sink)
+        (
+            delta_table.alias("target")
+            .merge(
+                df.alias("source"),
+                merge_condition,
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )

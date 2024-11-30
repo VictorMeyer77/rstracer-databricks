@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %run ./Common
+# MAGIC %run ./common
 
 # COMMAND ----------
 
@@ -32,25 +32,6 @@ def add_address_host(df, address_column, column_name):
 
 # COMMAND ----------
 
-def merge_table(df, table_sink, keys):
-    merge_condition = " AND ".join([f"source.{key} == target.{key}" for key in keys])
-    if not spark.catalog.tableExists(table_sink):
-        df.write.mode("overwrite").saveAsTable(table_sink)
-    else:
-        delta_table = DeltaTable.forName(spark, table_sink)
-        (
-            delta_table.alias("target")
-            .merge(
-                df.alias("source"),
-                merge_condition,
-            )
-            .whenMatchedUpdateAll()
-            .whenNotMatchedInsertAll()
-            .execute()
-        )
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC
 # MAGIC ## Dimension
@@ -65,7 +46,7 @@ dim_network_host_table_keys = ["_id", "address", "host"]
 
 def process_batch_dim_network_host(batch_df, batch_id):
     batch_df = batch_df.select("_id", "address", "host").distinct()
-    merge_table(batch_df, "silver.dim_network_host", dim_network_host_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_network_host", dim_network_host_table_keys)
 
 
 (
@@ -88,7 +69,7 @@ dim_file_reg_table_keys = ["pid", "fd", "node", "hostname"]
 
 def process_batch_dim_file_reg(batch_df, batch_id):
     batch_df = dedup(batch_df, dim_file_reg_table_keys)
-    merge_table(batch_df, "silver.dim_file_reg", dim_file_reg_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_file_reg", dim_file_reg_table_keys)
 
 
 (
@@ -112,7 +93,7 @@ dim_network_foreign_ip_table_keys = ["_id", "hostname"]
 def process_batch_dim_network_foreign_ip(batch_df, batch_id):
     batch_df = add_address_host(batch_df, "address", "host")
     batch_df = dedup(batch_df, dim_network_foreign_ip_table_keys)
-    merge_table(batch_df, "silver.dim_network_foreign_ip", dim_network_foreign_ip_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_network_foreign_ip", dim_network_foreign_ip_table_keys)
 
 
 (
@@ -138,7 +119,7 @@ def process_batch_dim_network_interface(batch_df, batch_id):
         "mask", F.col("address")["mask"]
     )
     batch_df = dedup(batch_df, dim_network_interface_table_keys)
-    merge_table(batch_df, "silver.dim_network_interface", dim_network_interface_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_network_interface", dim_network_interface_table_keys)
 
 
 (
@@ -161,7 +142,7 @@ dim_network_open_port_table_keys = ["pid", "port", "hostname"]
 
 def process_batch_dim_network_open_port(batch_df, batch_id):
     batch_df = dedup(batch_df, dim_network_open_port_table_keys)
-    merge_table(batch_df, "silver.dim_network_open_port", dim_network_open_port_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_network_open_port", dim_network_open_port_table_keys)
 
 
 (
@@ -185,7 +166,7 @@ dim_network_socket_table_keys = ["_id", "hostname"]
 def process_batch_dim_network_socket(batch_df, batch_id):
     batch_df = add_address_host(batch_df, "source_address", "source_host")
     batch_df = dedup(batch_df, dim_network_socket_table_keys)
-    merge_table(batch_df, "silver.dim_network_socket", dim_network_socket_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_network_socket", dim_network_socket_table_keys)
 
 
 (
@@ -208,7 +189,7 @@ dim_process_table_keys = ["pid", "started_at", "hostname"]
 
 def process_batch_dim_process(batch_df, batch_id):
     batch_df = dedup(batch_df, dim_process_table_keys)
-    merge_table(batch_df, "silver.dim_process", dim_process_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_process", dim_process_table_keys)
 
 
 (
@@ -231,7 +212,7 @@ dim_file_host_table_keys = ["name", "address", "hostname"]
 
 def process_batch_dim_file_host(batch_df, batch_id):
     batch_df = dedup(batch_df, dim_file_host_table_keys)
-    merge_table(batch_df, "silver.dim_file_host", dim_file_host_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_file_host", dim_file_host_table_keys)
 
 
 (
@@ -254,7 +235,7 @@ dim_file_user_table_keys = ["name", "uid", "hostname"]
 
 def process_batch_dim_file_user(batch_df, batch_id):
     batch_df = dedup(batch_df, dim_file_user_table_keys)
-    merge_table(batch_df, "silver.dim_file_user", dim_file_user_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_file_user", dim_file_user_table_keys)
 
 
 (
@@ -277,7 +258,7 @@ file_service_table_keys = ["name", "port", "protocol", "hostname"]
 
 def process_batch_dim_file_service(batch_df, batch_id):
     batch_df = dedup(batch_df, file_service_table_keys)
-    merge_table(batch_df, "silver.dim_file_service", file_service_table_keys)
+    streaming_merge_table(batch_df, "silver.dim_file_service", file_service_table_keys)
 
 
 (
@@ -305,7 +286,7 @@ fact_file_reg_table_keys = ["pid", "fd", "node", "created_at", "hostname"]
 
 def process_batch_fact_file_reg(batch_df, batch_id):
     batch_df = dedup(batch_df, fact_file_reg_table_keys)
-    merge_table(batch_df, "silver.fact_file_reg", fact_file_reg_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_file_reg", fact_file_reg_table_keys)
 
 (
     fact_file_reg.writeStream.outputMode("update")
@@ -329,7 +310,7 @@ def process_batch_fact_network_ip(batch_df, batch_id):
     batch_df = add_address_host(batch_df, "source_address", "source_host")
     batch_df = add_address_host(batch_df, "destination_address", "destination_host")
     batch_df = dedup(batch_df, fact_network_ip_table_keys)
-    merge_table(batch_df, "silver.fact_network_ip", fact_network_ip_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_network_ip", fact_network_ip_table_keys)
 
 
 (
@@ -352,7 +333,7 @@ fact_network_packet_table_keys = ["_id", "hostname"]
 
 def process_batch_fact_network_packet(batch_df, batch_id):
     batch_df = dedup(batch_df, fact_network_packet_table_keys)
-    merge_table(batch_df, "silver.fact_network_packet", fact_network_packet_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_network_packet", fact_network_packet_table_keys)
 
 
 (
@@ -375,7 +356,7 @@ fact_process_table_keys = ["pid", "started_at", "created_at", "hostname"]
 
 def process_batch_fact_process(batch_df, batch_id):
     batch_df = dedup(batch_df, fact_process_table_keys)
-    merge_table(batch_df, "silver.fact_process", fact_process_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_process", fact_process_table_keys)
 
 
 (
@@ -398,7 +379,7 @@ fact_process_network_table_keys = ["_id", "hostname"]
 
 def process_batch_fact_process_network(batch_df, batch_id):
     batch_df = dedup(batch_df, fact_process_network_table_keys)
-    merge_table(batch_df, "silver.fact_process_network", fact_process_network_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_process_network", fact_process_network_table_keys)
 
 
 (
@@ -421,7 +402,7 @@ fact_tech_chrono_table_keys = ["name", "hostname"]
 
 def process_batch_fact_tech_chrono(batch_df, batch_id):
     batch_df = dedup(batch_df, fact_tech_chrono_table_keys)
-    merge_table(batch_df, "silver.fact_tech_chrono", fact_tech_chrono_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_tech_chrono", fact_tech_chrono_table_keys)
 
 
 (
@@ -444,7 +425,7 @@ fact_tech_table_count_table_keys = ["_id", "hostname"]
 
 def process_batch_tech_table_count(batch_df, batch_id):
     batch_df = dedup(batch_df, fact_tech_table_count_table_keys)
-    merge_table(batch_df, "silver.fact_tech_table_count", fact_tech_table_count_table_keys)
+    streaming_merge_table(batch_df, "silver.fact_tech_table_count", fact_tech_table_count_table_keys)
 
 
 (

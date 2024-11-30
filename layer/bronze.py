@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %run ./Common
+# MAGIC %run ./common
 
 # COMMAND ----------
 
@@ -58,7 +58,7 @@ def add_meta_columns(df):
                 "yyyyMMddHHmmss",
             ),
         )
-        .withColumn("date_ingest", F.current_timestamp())
+        .withColumn("dtk_inserted_at", F.current_timestamp())
     )
 
 # COMMAND ----------

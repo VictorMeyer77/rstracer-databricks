@@ -1,10 +1,9 @@
 # Databricks notebook source
-# MAGIC %run ./Common
+# MAGIC %run ../common
 
 # COMMAND ----------
 
-GOLD_REFRESH_FREQUENCY_SECOND = 30
-GOLD_PROCESS_WINDOW_HOUR = 24 * 3
+WATERMARK_MINUTES = 15
 
 # COMMAND ----------
 
@@ -17,20 +16,19 @@ GOLD_PROCESS_WINDOW_HOUR = 24 * 3
 def read_table_window(table, hours=1):
     df = spark.read.table(table)
     return df.filter(
-        F.unix_timestamp("inserted_at") > F.unix_timestamp() - GOLD_PROCESS_WINDOW_HOUR * 60 * 60
+        F.unix_timestamp("dtk_inserted_at") > F.unix_timestamp() - WATERMARK_MINUTES * 60
     )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Gold network intra
+# MAGIC ## gold.fact_network_intra_packet
 
 # COMMAND ----------
 
 # ip packet with metadata
 
-def fact_ip_packet():
-    fact_network_ip = read_table_window("silver.fact_network_ip")
+def fact_ip_packet(fact_network_ip):
     fact_network_packet = read_table_window("silver.fact_network_packet")
     return (
         fact_network_ip.alias("ip")
@@ -163,8 +161,13 @@ def gold_fact_network_intra_packet(fact_packet_with_process):
 
 # COMMAND ----------
 
-# gold_fact_network_intra_connection -> each row is a connection between two network hosts, by minutes
+# MAGIC %md
+# MAGIC
+# MAGIC ## gold.fact_network_intra_connection
 
+# COMMAND ----------
+
+# gold_fact_network_intra_connection -> each row is a connection between two network hosts, by minutes
 
 def gold_fact_network_intra_connection(gold_fact_network_intra_packet):
     return (
@@ -198,9 +201,9 @@ def gold_fact_network_intra_connection(gold_fact_network_intra_packet):
             F.col("source.command").alias("source_command"),
             F.col("source.full_command").alias("source_full_command"),
             F.col("source.process_started_at").alias("source_process_started_at"),
-            "destination.destination_hostname",
-            "destination.destination_host",
-            "destination.destination_port",
+            F.col("destination.source_hostname").alias("destination_hostname"),
+            F.col("destination.source_host").alias("destination_host"),
+            F.col("destination.source_port").alias("destination_port"),
             F.col("destination.interface").alias("destination_interface"),
             F.col("destination.pid").alias("destination_pid"),
             F.col("destination.ppid").alias("destination_ppid"),
@@ -221,8 +224,8 @@ def gold_fact_network_intra_connection(gold_fact_network_intra_packet):
 
 # COMMAND ----------
 
-while True:
-    fact_ip_packet_df = fact_ip_packet()
+def process_batch_gold_network_intra(batch_df, batch_id):
+    fact_ip_packet_df = fact_ip_packet(batch_df)
     fact_ip_packet_with_host_df = fact_ip_packet_with_host(fact_ip_packet_df)
     network_process_df = network_process()
     fact_packet_with_process_df = fact_packet_with_process(
@@ -234,11 +237,36 @@ while True:
     gold_fact_network_intra_connection_df = gold_fact_network_intra_connection(
         gold_fact_network_intra_packet_df
     )
-    gold_fact_network_intra_packet_df.write.mode("overwrite").saveAsTable(
-        "gold.fact_network_intra_packet"
+
+    streaming_merge_table(
+        gold_fact_network_intra_packet_df,
+        "gold.fact_network_intra_packet",
+        ["packet_id", "source_hostname"],
     )
-    gold_fact_network_intra_connection_df.write.mode("overwrite").saveAsTable(
-        "gold.fact_network_intra_connection"
+    streaming_merge_table(
+        gold_fact_network_intra_connection_df,
+        "gold.fact_network_intra_connection",
+        [
+            "network",
+            "created_at",
+            "source_host",
+            "source_port",
+            "destination_host",
+            "destination_port",
+        ],
     )
-    print(f"gold refresh, sleep {GOLD_REFRESH_FREQUENCY_SECOND} seconds...")
-    time.sleep(GOLD_REFRESH_FREQUENCY_SECOND)
+
+# COMMAND ----------
+
+network_intra = spark.readStream.table("silver.fact_network_ip")
+network_intra = network_intra.withWatermark("dtk_inserted_at", f"{WATERMARK_MINUTES} minutes")
+
+(
+    network_intra.writeStream.outputMode("update")
+    .foreachBatch(process_batch_gold_network_intra)
+    .option(
+        "checkpointLocation",
+        f"{CHECKPOINT_PATH}/gold_network_intra",
+    )
+    .start()
+)
