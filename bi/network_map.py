@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 fact_network_map_connection = (
     spark.read.table("gold.fact_network_map_connection")
     .filter(
-        F.col("dtk_inserted_at")
+        F.unix_timestamp("dtk_inserted_at")
         > F.unix_timestamp() - int(dbutils.widgets.get("analysis_history")) * 60
     )
     .na.fill("unknown")
@@ -159,6 +159,6 @@ display(
 # COMMAND ----------
 
 display(spark.read.table("gold.fact_network_map_packet").filter(
-    F.col("dtk_inserted_at")
+    F.unix_timestamp("dtk_inserted_at")
     > F.unix_timestamp() - int(dbutils.widgets.get("analysis_history")) * 60
 ))

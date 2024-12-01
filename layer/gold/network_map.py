@@ -167,7 +167,7 @@ def gold_fact_network_map_packet(fact_packet_with_process):
         "destination_port",
         "destination_network",
         "destination_hostname",
-        F.unix_timestamp().alias("dtk_inserted_at"),
+        F.current_timestamp().alias("dtk_inserted_at"),
     )
 
 # COMMAND ----------
