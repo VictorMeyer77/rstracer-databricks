@@ -14,18 +14,23 @@ def get_table_count(schema):
 
 # COMMAND ----------
 
+def get_raw_table_count():
+    return len(dbutils.fs.ls(RAW_PATH))
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC
 # MAGIC ## Bronze
 
 # COMMAND ----------
 
-# MAGIC %run ../layer/bronze
+while get_raw_table_count() != 17:
+    time.sleep(5)
 
 # COMMAND ----------
 
-while get_table_count("bronze") != 17:
-    time.sleep(5)
+# MAGIC %run ../layer/bronze
 
 # COMMAND ----------
 
@@ -35,12 +40,12 @@ while get_table_count("bronze") != 17:
 
 # COMMAND ----------
 
-# MAGIC %run ../layer/silver
+while get_table_count("bronze") != 17:
+    time.sleep(5)
 
 # COMMAND ----------
 
-while get_table_count("silver") != 17:
-    time.sleep(5)
+# MAGIC %run ../layer/silver
 
 # COMMAND ----------
 
@@ -50,14 +55,9 @@ while get_table_count("silver") != 17:
 
 # COMMAND ----------
 
-# MAGIC %run ../layer/gold/network_intra
+while get_table_count("silver") != 17:
+    time.sleep(5)
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC
-# MAGIC select * from gold.fact_network_intra_connection
-
-# COMMAND ----------
-
-
+# MAGIC %run ../layer/gold/network_map
