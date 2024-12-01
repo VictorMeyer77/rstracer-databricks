@@ -410,7 +410,7 @@ def process_batch_fact_tech_chrono(batch_df, batch_id):
     .foreachBatch(process_batch_fact_tech_chrono)
     .option(
         "checkpointLocation",
-        f"{CHECKPOINT_PATH}/fact_tech_chrono",
+        f"{CHECKPOINT_PATH}/silver_fact_tech_chrono",
     )
     .start()
 )
@@ -433,7 +433,7 @@ def process_batch_tech_table_count(batch_df, batch_id):
     .foreachBatch(process_batch_tech_table_count)
     .option(
         "checkpointLocation",
-        f"{CHECKPOINT_PATH}/fact_tech_table_count",
+        f"{CHECKPOINT_PATH}/silver_fact_tech_table_count",
     )
     .start()
 )

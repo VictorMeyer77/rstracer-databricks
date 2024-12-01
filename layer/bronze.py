@@ -64,9 +64,7 @@ def add_meta_columns(df):
 # COMMAND ----------
 
 def raw_to_bronze(table):
-    df = spark.readStream.parquet(
-        f"abfss://rstracer@devrstracersto.dfs.core.windows.net/raw/{table}"
-    )
+    df = spark.readStream.parquet(f"{RAW_PATH}/{table}")
     df = add_meta_columns(df)
     df = df.distinct()
     df.writeStream.outputMode("append").option(

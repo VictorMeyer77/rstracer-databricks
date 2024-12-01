@@ -7,9 +7,10 @@ import time
 
 # COMMAND ----------
 
-# storage credentials
+# storage
 
 STORAGE_ACCOUNT = "devrstracersto"
+RAW_PATH = f"abfss://rstracer@{STORAGE_ACCOUNT}.dfs.core.windows.net/raw"
 secret = dbutils.secrets.get(scope="azure-key-vault-rstracer", key="sto-secret-key")
 app_id = dbutils.secrets.get(scope="azure-key-vault-rstracer", key="sto-app-id")
 tenant_id = dbutils.secrets.get(scope="azure-key-vault-rstracer", key="sto-tenant-id")
