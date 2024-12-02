@@ -1,9 +1,14 @@
 # Databricks notebook source
+import threading
+
+# COMMAND ----------
+
 # MAGIC %run ../common
 
 # COMMAND ----------
 
-WATERMARK_MINUTES = 15
+WATERMARK_MINUTES = 10
+MICRO_BATCH_FREQUENCY = 30
 
 # COMMAND ----------
 
@@ -13,10 +18,11 @@ WATERMARK_MINUTES = 15
 
 # COMMAND ----------
 
-def read_table_window(table, hours=1):
+def read_table_window(table):
     df = spark.read.table(table)
     return df.filter(
-        F.unix_timestamp("dtk_inserted_at") > F.unix_timestamp() - WATERMARK_MINUTES * 60
+        F.unix_timestamp("dtk_inserted_at")
+        > F.unix_timestamp() - WATERMARK_MINUTES * 60
     )
 
 # COMMAND ----------
@@ -56,36 +62,10 @@ def fact_ip_packet(fact_network_ip):
 
 # COMMAND ----------
 
-# ip packet with process info
-
-
-def network_process():
-    fact_process_network = read_table_window("silver.fact_process_network")
-    dim_process = read_table_window("silver.dim_process")
-    return fact_process_network.join(
-        dim_process,
-        [
-            F.col("fact_process_network.pid") == F.col("dim_process.pid"),
-            F.col("fact_process_network.hostname") == F.col("dim_process.hostname"),
-        ],
-        "inner",
-    ).select(
-        "fact_process_network.packet_id",
-        "fact_process_network.hostname",
-        "fact_process_network.pid",
-        "dim_process.ppid",
-        "dim_process.uid",
-        "dim_process.command",
-        "dim_process.full_command",
-        "dim_process.started_at",
-    )
-
-# COMMAND ----------
-
 # ip packet with source and destination host
 
 
-def fact_ip_packet_with_host(fact_ip_packet):
+def fact_packet_with_host(fact_ip_packet):
     dim_network_interface = read_table_window("silver.dim_network_interface")
     fact_ip_packet_with_host = (
         fact_ip_packet.alias("ip")
@@ -96,6 +76,7 @@ def fact_ip_packet_with_host(fact_ip_packet):
             ],
             "left",
         )
+        .filter(F.col("ip.hostname") == F.col("int.hostname"))
         .select(
             "ip.*",
             F.col("int.network").alias("source_network"),
@@ -103,7 +84,7 @@ def fact_ip_packet_with_host(fact_ip_packet):
         )
     )
 
-    return (
+    fact_ip_packet_with_host = (
         fact_ip_packet_with_host.alias("ip")
         .join(
             dim_network_interface.alias("int"),
@@ -119,26 +100,74 @@ def fact_ip_packet_with_host(fact_ip_packet):
         )
     )
 
+    return fact_ip_packet_with_host.filter(
+        "source_network is not null and destination_network is not null and source_host != destination_host"
+    )
+
 # COMMAND ----------
 
-# fact ip with associated process
+# ip packet with process info
 
 
-def fact_packet_with_process(fact_ip_packet_with_host, network_process):
-    return (
-        fact_ip_packet_with_host.filter(
-            "source_network is not null and destination_network is not null and source_host != destination_host"
-        )
-        .alias("ip")
+def fact_packet_with_process(fact_ip_packet):
+    fact_process_network = read_table_window("silver.fact_process_network")
+    dim_process = read_table_window("silver.dim_process")
+
+    packet_with_process = (
+        fact_ip_packet.alias("ip")
         .join(
-            network_process.alias("net_pro"),
+            fact_process_network.alias("net_pro"),
             [
                 F.col("ip._id") == F.col("net_pro.packet_id"),
                 F.col("ip.hostname") == F.col("net_pro.hostname"),
             ],
             "left",
         )
+        .select("ip.*", "net_pro.pid")
     )
+
+    packet_with_process = (
+        packet_with_process.alias("ip")
+        .join(
+            dim_process.alias("pro"),
+            [
+                F.col("ip.pid") == F.col("pro.pid"),
+                F.col("ip.hostname") == F.col("pro.hostname"),
+            ],
+            "left",
+        )
+        .select(
+            "ip.*",
+            "pro.ppid",
+            "pro.uid",
+            "pro.command",
+            "pro.full_command",
+            F.col("started_at").alias("process_started_at"),
+        )
+    )
+
+    return packet_with_process
+
+# COMMAND ----------
+
+# ensure join time consistency
+
+
+def dedup_fact_packet_with_process(fact_packet_with_process):
+    fact_packet_without_process = fact_packet_with_process.filter(
+        "process_started_at is null"
+    )
+    fact_packet_with_process = fact_packet_with_process.filter(
+        "process_started_at is not null and process_started_at < created_at"
+    )
+    window = Window.partitionBy(["_id", "pid"]).orderBy(
+        F.col("process_started_at").asc()
+    )
+    rank_df = fact_packet_with_process.withColumn(
+        "row_number", F.row_number().over(window)
+    )
+    rank_df = rank_df.filter(F.col("row_number") == 1)
+    return rank_df.drop("row_number").unionByName(fact_packet_without_process)
 
 # COMMAND ----------
 
@@ -146,9 +175,7 @@ def fact_packet_with_process(fact_ip_packet_with_host, network_process):
 
 
 def gold_fact_network_map_packet(fact_packet_with_process):
-    return fact_packet_with_process.filter(
-        F.col("ip.hostname") == F.col("source_hostname")
-    ).select(
+    return fact_packet_with_process.select(
         F.col("_id").alias("packet_id"),
         "source_hostname",
         "source_host",
@@ -162,7 +189,7 @@ def gold_fact_network_map_packet(fact_packet_with_process):
         "uid",
         "command",
         "full_command",
-        F.col("started_at").alias("process_started_at"),
+        "process_started_at",
         "destination_host",
         "destination_port",
         "destination_network",
@@ -237,20 +264,20 @@ def gold_fact_network_map_connection(gold_fact_network_map_packet):
 
 # COMMAND ----------
 
-def process_batch_gold_network_map(batch_df, batch_id):
-    fact_ip_packet_df = fact_ip_packet(batch_df)
-    fact_ip_packet_with_host_df = fact_ip_packet_with_host(fact_ip_packet_df)
-    network_process_df = network_process()
-    fact_packet_with_process_df = fact_packet_with_process(
-        fact_ip_packet_with_host_df, network_process_df
+def process_batch_gold_network_map():
+    fact_network_ip_df = read_table_window("silver.fact_network_ip")
+    fact_ip_packet_df = fact_ip_packet(fact_network_ip_df)
+    fact_packet_with_host_df = fact_packet_with_host(fact_ip_packet_df)
+    fact_packet_with_process_df = fact_packet_with_process(fact_packet_with_host_df)
+    dedup_fact_packet_with_process_df = dedup_fact_packet_with_process(
+        fact_packet_with_process_df
     )
     gold_fact_network_map_packet_df = gold_fact_network_map_packet(
-        fact_packet_with_process_df
+        dedup_fact_packet_with_process_df
     )
     gold_fact_network_map_connection_df = gold_fact_network_map_connection(
         gold_fact_network_map_packet_df
     )
-
     streaming_merge_table(
         gold_fact_network_map_packet_df,
         "gold.fact_network_map_packet",
@@ -272,17 +299,25 @@ def process_batch_gold_network_map(batch_df, batch_id):
 
 # COMMAND ----------
 
-network_map = spark.readStream.table("silver.fact_network_ip")
-network_map = network_map.withWatermark(
-    "dtk_inserted_at", f"{WATERMARK_MINUTES} minutes"
-)
+def run():
+    last_run = 0
+    while True:
+        if time.time() > last_run + MICRO_BATCH_FREQUENCY:
+            start = time.time()
+            process_batch_gold_network_map()
+            duration = start - time.time()
+            if duration > MICRO_BATCH_FREQUENCY:
+                print(
+                    f"WARNING: batch duration longer than frequency: f{duration} s > {MICRO_BATCH_FREQUENCY} s"
+                )
+            else:
+                time.sleep(MICRO_BATCH_FREQUENCY - duration)
+            last_run = time.time()
+        else:
+            time.sleep(1)
 
-(
-    network_map.writeStream.outputMode("update")
-    .foreachBatch(process_batch_gold_network_map)
-    .option(
-        "checkpointLocation",
-        f"{CHECKPOINT_PATH}/gold_network_map",
-    )
-    .start()
-)
+# COMMAND ----------
+
+network_map_thread = threading.Thread(target=run)
+network_map_thread.start()
+print("Network map thread started")
