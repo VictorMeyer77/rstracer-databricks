@@ -5,7 +5,7 @@
 
 # MAGIC %md
 # MAGIC
-# MAGIC # Function
+# MAGIC ## Function
 
 # COMMAND ----------
 

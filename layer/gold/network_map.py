@@ -209,52 +209,63 @@ def gold_fact_network_map_packet(fact_packet_with_process):
 
 
 def gold_fact_network_map_connection(gold_fact_network_map_packet):
-    return (
-        gold_fact_network_map_packet.alias("source")
-        .join(
+    fact_ip_source_with_dest = (
+        gold_fact_network_map_packet.alias("source").join(
             gold_fact_network_map_packet.alias("destination"),
             [
                 F.col("source.source_host") == F.col("destination.destination_host"),
                 F.col("source.source_port") == F.col("destination.destination_port"),
                 F.col("source.source_hostname")
                 == F.col("destination.destination_hostname"),
-                F.abs(
-                    F.unix_timestamp("source.created_at")
-                    - F.unix_timestamp("destination.created_at")
-                )
-                < 1,
+                F.date_trunc("minute", F.col("source.created_at"))
+                == F.date_trunc("minute", F.col("source.created_at")),
             ],
             "inner",
         )
-        .select(
-            F.date_trunc("minute", F.col("source.created_at")).alias("created_at"),
+    ).withColumn("created_at_trunc", F.date_trunc("minute", F.col("source.created_at")))
+
+    window = Window.partitionBy(
+        [
+            "created_at_trunc",
             "source.source_network",
-            "source.source_hostname",
             "source.source_host",
             "source.source_port",
-            F.col("source.interface").alias("source_interface"),
-            F.col("source.pid").alias("source_pid"),
-            F.col("source.ppid").alias("source_ppid"),
-            F.col("source.uid").alias("source_uid"),
-            F.col("source.command").alias("source_command"),
-            F.col("source.full_command").alias("source_full_command"),
-            F.col("source.process_started_at").alias("source_process_started_at"),
-            F.col("destination.source_network").alias("destination_network"),
-            F.col("destination.source_hostname").alias("destination_hostname"),
-            F.col("destination.source_host").alias("destination_host"),
-            F.col("destination.source_port").alias("destination_port"),
-            F.col("destination.interface").alias("destination_interface"),
-            F.col("destination.pid").alias("destination_pid"),
-            F.col("destination.ppid").alias("destination_ppid"),
-            F.col("destination.uid").alias("destination_uid"),
-            F.col("destination.command").alias("destination_command"),
-            F.col("destination.full_command").alias("destination_full_command"),
-            F.col("destination.process_started_at").alias(
-                "destination_process_started_at"
-            ),
-            "source.dtk_inserted_at",
-        )
-    ).distinct()
+            "destination.source_host",
+            "destination.source_port",
+            "destination.source_network",
+        ]
+    ).orderBy(F.col("created_at_trunc").asc())
+    rank_df = fact_ip_source_with_dest.withColumn(
+        "row_number", F.row_number().over(window)
+    )
+    rank_df = rank_df.filter(F.col("row_number") == 1)
+
+    return rank_df.select(
+        F.col("created_at_trunc").alias("created_at"),
+        "source.source_network",
+        "source.source_hostname",
+        "source.source_host",
+        "source.source_port",
+        F.col("source.interface").alias("source_interface"),
+        F.col("source.pid").alias("source_pid"),
+        F.col("source.ppid").alias("source_ppid"),
+        F.col("source.uid").alias("source_uid"),
+        F.col("source.command").alias("source_command"),
+        F.col("source.full_command").alias("source_full_command"),
+        F.col("source.process_started_at").alias("source_process_started_at"),
+        F.col("destination.source_network").alias("destination_network"),
+        F.col("destination.source_hostname").alias("destination_hostname"),
+        F.col("destination.source_host").alias("destination_host"),
+        F.col("destination.source_port").alias("destination_port"),
+        F.col("destination.interface").alias("destination_interface"),
+        F.col("destination.pid").alias("destination_pid"),
+        F.col("destination.ppid").alias("destination_ppid"),
+        F.col("destination.uid").alias("destination_uid"),
+        F.col("destination.command").alias("destination_command"),
+        F.col("destination.full_command").alias("destination_full_command"),
+        F.col("destination.process_started_at").alias("destination_process_started_at"),
+        "source.dtk_inserted_at",
+    )
 
 # COMMAND ----------
 
@@ -305,7 +316,7 @@ def run():
         if time.time() > last_run + MICRO_BATCH_FREQUENCY:
             start = time.time()
             process_batch_gold_network_map()
-            duration = start - time.time()
+            duration = time.time() - start
             if duration > MICRO_BATCH_FREQUENCY:
                 print(
                     f"WARNING: batch duration longer than frequency: f{duration} s > {MICRO_BATCH_FREQUENCY} s"

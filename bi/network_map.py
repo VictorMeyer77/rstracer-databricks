@@ -111,22 +111,26 @@ graph = graphviz.Digraph(format="png")
 graph.attr(bgcolor="white", ranksep="2", nodesep="1")
 
 for i, row in networks.iterrows():
-
     network = row["network"]
     network_nodes = nodes.filter(F.col("network") == network).toPandas()
-    
 
     with graph.subgraph(name=f"cluster_{i}") as sub:
-
         for _, row in network_nodes.iterrows():
-            sub.node(row["_id"], row["label"], shape="rectangle", color="#50FA7B", style="filled")
+            sub.node(
+                row["_id"],
+                row["label"],
+                shape="rectangle",
+                color="#50FA7B",
+                style="filled",
+            )
 
-        
         sub.attr(label=network)
 
 network_edges = edges.toPandas()
 for _, row in network_edges.iterrows():
-    graph.edge(row["source_id"], row["destination_id"], color="#282A36", label=str(row["_id"]))
+    graph.edge(
+        row["source_id"], row["destination_id"], color="#282A36", label=str(row["_id"])
+    )
 
 graph.render("network-mapping", format="png", cleanup=True)
 
@@ -158,7 +162,9 @@ display(
 
 # COMMAND ----------
 
-display(spark.read.table("gold.fact_network_map_packet").filter(
-    F.unix_timestamp("dtk_inserted_at")
-    > F.unix_timestamp() - int(dbutils.widgets.get("analysis_history")) * 60
-))
+display(
+    spark.read.table("gold.fact_network_map_packet").filter(
+        F.unix_timestamp("dtk_inserted_at")
+        > F.unix_timestamp() - int(dbutils.widgets.get("analysis_history")) * 60
+    )
+)
